@@ -3,7 +3,8 @@
 module Main (main) where
 
 import Options.Applicative
-import Control.Monad (join, unless)
+import Control.Monad (join, unless, when)
+import Control.Arrow (first)
 import Data.Monoid
 import System.IO
 import System.IO.Error hiding (catch)
@@ -15,14 +16,23 @@ import Data.IORef
 data Options = Options {
     numberAllLines      :: Bool,
     numberNonBlankLines :: Bool,
+    disableOutputBuff   :: Bool,
+    displayAndDollar    :: Bool,
     files               :: [FilePath]
 }
 
 options :: Parser Options
 options = Options <$> switch (short 'n'
-                    <> help "Number the output lines, starting at 1.")
+                    <> help "Number the output lines, starting at 1")
                   <*> switch (short 'b'
-                    <> help "Number the non-blank output lines, starting at 1.")
+                    <> help "Number the non-blank output lines, starting at 1")
+                  <*> switch (short 'u'
+                    <> help "Disable output buffering")
+                  <*> switch (short 'e'
+                    <> help ("Display non-printing characters " ++
+                             "(see the -v option), " ++
+                             "and display a dollar sign (`$') at " ++
+                             "the end of each line"))
                   <*> arguments str (metavar "files...")
 
 main :: IO ()
@@ -31,6 +41,7 @@ main = join $ mainWithOptions <$> execParser (info (options <**> helper) mempty)
 
 mainWithOptions :: Options -> IORef Int -> IO ()
 mainWithOptions opts ref = do
+    when (disableOutputBuff opts) $ hSetBuffering stdout NoBuffering
     case files opts of
         [] -> processHandle stdin
         fs -> mapM_ processFile fs
@@ -39,6 +50,11 @@ mainWithOptions opts ref = do
         processFile :: FilePath -> IO ()
         processFile f = handle (\ e -> errorHandler e >> registerError 1) $
             withFile f ReadMode processHandle
+
+        addEndDollar :: String -> String
+        addEndDollar
+            | displayAndDollar opts = flip (++) "$"
+            | otherwise             = id
 
         addNumber :: Int -> String -> (String, Int)
         addNumber
@@ -60,7 +76,8 @@ mainWithOptions opts ref = do
                 go n h = do
                     eof <- hIsEOF h
                     unless eof $ do
-                        (line, n') <- fmap (addNumber n) $ hGetLine h
+                        (line, n') <- fmap (first addEndDollar . addNumber n) $
+                            hGetLine h
                         putStrLn line
                         go n' h
 

@@ -21,3 +21,9 @@ executable h-expand
                    mtl >= 1.0
   main-is:         Main.hs
   hs-source-dirs:  expand
+
+executable h-iconv
+  build-depends:   base >=4.0 && <5.0, 
+                   optparse-applicative >= 0.5.2.1,
+  main-is:         Main.hs
+  hs-source-dirs:  iconv

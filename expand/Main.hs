@@ -11,13 +11,12 @@ import Data.List.Split (splitOn)
 import Data.Monoid
 import System.IO
 import System.IO.Error hiding (catch)
-import Control.Exception (catch)
+import Control.Exception (catch, handle)
 import System.Exit (exitFailure)
 
 data Options = Options {
     tabs     :: [Int],
-    encoding :: String,
-    files    :: [String]
+    files    :: [FilePath]
 }
 
 readTabs :: Error e => String -> Either e [Int]
@@ -34,11 +33,6 @@ options = Options <$> nullOption (short 't'
                     <> metavar "tablist" 
                     <> help "Specify the tab stops" 
                     <> value (listToTabs []))
-                  <*> strOption (short 'e'
-                    <> long "enc"
-                    <> metavar "encoding"
-                    <> help "Specify the encoding"
-                    <> value (show localeEncoding))
                   <*> arguments str (metavar "files...")
 
 listToTabs :: [Int] -> [Int]
@@ -60,37 +54,28 @@ expandLine = go 0
             (x:xs)    -> x : go (p+1) css xs
 
 mainWithOptions :: Options -> IO ()
-mainWithOptions opts = (do
-    enc <- mkTextEncoding (encoding opts)
-    hSetEncoding stdin enc  -- Dirty trick to fail when the encoding doesn't exist.
-    if null fs then expandStdIn enc else expandFiles enc) `catch` 
-        (\e -> errorHandler e >> exitFailure)
+mainWithOptions opts = handle (\e -> errorHandler e >> exitFailure) $
+    if null fs then expandHandle stdin else expandFiles
     where
-        fs :: [String]
+        fs :: [FilePath]
         fs = files opts 
 
         ts :: [Int]
         ts = tabs opts
 
-        expandStdIn :: TextEncoding -> IO ()
-        expandStdIn enc = expandHandle enc stdin
+        expandFiles :: IO ()
+        expandFiles = mapM_ expandFile fs
 
-        expandFiles :: TextEncoding -> IO ()
-        expandFiles enc = mapM_ (expandFile enc) fs
-
-        expandFile :: TextEncoding -> String -> IO ()
-        expandFile enc f = withFile f ReadMode (expandHandle enc)
+        expandFile :: FilePath -> IO ()
+        expandFile f = withFile f ReadMode expandHandle
         
-        expandHandle :: TextEncoding -> Handle -> IO ()
-        expandHandle enc h = (hSetEncoding h enc >> go h) `catch` errorHandler
-            where
-            go :: Handle -> IO ()
-            go h = do
+        expandHandle :: Handle -> IO ()
+        expandHandle h = do
                 eof <- hIsEOF h
                 unless eof $ do 
                     line <- hGetLine h
                     putStrLn $ expandLine ts line
-                    go h
+                    expandHandle h
 
         errorHandler :: IOError -> IO ()
         errorHandler e
@@ -98,7 +83,7 @@ mainWithOptions opts = (do
                 hPutStrLn stderr $ "The file " ++ f ++ " does not exist."
             | isPermissionError e, Just f <- ioeGetFileName e = 
                 hPutStrLn stderr $ "Not enough permission to read file " ++ f ++ "."
-            | otherwise = hPutStrLn stderr "Can not decode with specified encoding."
+            | otherwise = hPutStrLn stderr "Unknown error."
 
 main :: IO ()
 main = execParser (info (options <**> helper) mempty) >>= mainWithOptions

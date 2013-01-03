@@ -5,6 +5,7 @@ module Main(main) where
 import Prelude hiding (catch)
 import Options.Applicative
 import Control.Error (assertErr, readErr, readMay)
+import Control.Monad (unless)
 import Control.Monad.Error.Class (Error, strMsg)
 import Data.List.Split (splitOn)
 import Data.Monoid
@@ -50,13 +51,13 @@ sorted (x:y:ys) = x < y && sorted (y:ys)
 sorted _ = True
 
 expandLine :: [Int] -> String -> String
-expandLine ts line = go 0 ts line
+expandLine = go 0
     where
         go :: Int -> [Int] -> String -> String
         go p css s = let (c:cs) = dropWhile (<=p) css in case s of
             ""        -> ""
             ('\t':xs) -> replicate (c - p) ' ' ++ go c cs xs
-            (x:xs)    -> x : go (p+1) (css) xs
+            (x:xs)    -> x : go (p+1) css xs
 
 mainWithOptions :: Options -> IO ()
 mainWithOptions opts = (do
@@ -75,7 +76,7 @@ mainWithOptions opts = (do
         expandStdIn enc = expandHandle enc stdin
 
         expandFiles :: TextEncoding -> IO ()
-        expandFiles enc = mapM (expandFile enc) fs >> return ()
+        expandFiles enc = mapM_ (expandFile enc) fs
 
         expandFile :: TextEncoding -> String -> IO ()
         expandFile enc f = withFile f ReadMode (expandHandle enc)
@@ -86,12 +87,10 @@ mainWithOptions opts = (do
             go :: Handle -> IO ()
             go h = do
                 eof <- hIsEOF h
-                case eof of
-                    True  -> return ()
-                    False -> do
-                        line <- hGetLine h
-                        putStrLn $ expandLine ts line
-                        go h
+                unless eof $ do 
+                    line <- hGetLine h
+                    putStrLn $ expandLine ts line
+                    go h
 
         errorHandler :: IOError -> IO ()
         errorHandler e
@@ -102,4 +101,4 @@ mainWithOptions opts = (do
             | otherwise = hPutStrLn stderr "Can not decode with specified encoding."
 
 main :: IO ()
-main = execParser (info (options <**> helper) (fullDesc)) >>= mainWithOptions
+main = execParser (info (options <**> helper) fullDesc) >>= mainWithOptions

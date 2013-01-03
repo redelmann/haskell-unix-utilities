@@ -62,7 +62,7 @@ expandLine = go 0
 mainWithOptions :: Options -> IO ()
 mainWithOptions opts = (do
     enc <- mkTextEncoding (encoding opts)
-    hSetEncoding stdin enc
+    hSetEncoding stdin enc  -- Dirty trick to fail when the encoding doesn't exist.
     if null fs then expandStdIn enc else expandFiles enc) `catch` 
         (\e -> errorHandler e >> exitFailure)
     where
@@ -101,4 +101,4 @@ mainWithOptions opts = (do
             | otherwise = hPutStrLn stderr "Can not decode with specified encoding."
 
 main :: IO ()
-main = execParser (info (options <**> helper) fullDesc) >>= mainWithOptions
+main = execParser (info (options <**> helper) mempty) >>= mainWithOptions

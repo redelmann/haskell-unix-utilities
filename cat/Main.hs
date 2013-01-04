@@ -4,7 +4,6 @@ module Main (main) where
 
 import Options.Applicative
 import Control.Monad (join, unless, when)
-import Control.Arrow (first)
 import Data.Monoid
 import System.IO
 import System.IO.Error hiding (catch)
@@ -18,6 +17,7 @@ data Options = Options {
     numberNonBlankLines :: Bool,
     disableOutputBuff   :: Bool,
     displayAndDollar    :: Bool,
+    squeezeEmptyLines   :: Bool,
     files               :: [FilePath]
 }
 
@@ -33,6 +33,9 @@ options = Options <$> switch (short 'n'
                              "(see the -v option), " ++
                              "and display a dollar sign (`$') at " ++
                              "the end of each line"))
+                  <*> switch (short 's'
+                    <> help ("Squeeze multiple adjacent empty lines, " ++
+                             "causing the output to be single spaced"))
                   <*> arguments str (metavar "files...")
 
 main :: IO ()
@@ -51,35 +54,47 @@ mainWithOptions opts ref = do
         processFile f = handle (\ e -> errorHandler e >> registerError 1) $
             withFile f ReadMode processHandle
 
-        addEndDollar :: String -> String
+        addEndDollar :: IO ()
         addEndDollar
-            | displayAndDollar opts = flip (++) "$"
-            | otherwise             = id
+            | displayAndDollar opts = putStr "$"
+            | otherwise             = return ()
 
-        addNumber :: Int -> String -> (String, Int)
+        addNumber :: Int -> Bool -> IO Int
         addNumber
-            | numberNonBlankLines opts = \ n s ->
-                if null s then (s, n) else (prependLineNumber n s, n + 1)
-            | numberAllLines opts = \ n s ->
-                (prependLineNumber n s, n + 1)
-            | otherwise = \ n s -> (s, n)
+            | numberNonBlankLines opts = \ n e ->
+                if e
+                    then return n
+                    else putStr (showLineNumber n) >> return (n + 1)
+            | numberAllLines opts = \ n _ ->
+                putStr (showLineNumber n) >> return (n + 1)
+            | otherwise = \ n _ -> return n
 
-        prependLineNumber :: Int -> String -> String
-        prependLineNumber n s = replicate (6 - length r) ' ' ++ r ++ "  " ++ s
+        showLineNumber :: Int -> String
+        showLineNumber n = replicate (6 - length r) ' ' ++ r ++ "  "
             where
                 r = show n
 
+        mustIgnore :: Bool -> Bool -> Bool
+        mustIgnore
+            | squeezeEmptyLines opts = (&&)
+            | otherwise              = const $ const False
+
         processHandle :: Handle -> IO ()
-        processHandle = go 1
+        processHandle = go 1 False
             where
-                go :: Int -> Handle -> IO ()
-                go n h = do
+                go :: Int -> Bool -> Handle -> IO ()
+                go n e h = do
                     eof <- hIsEOF h
                     unless eof $ do
-                        (line, n') <- fmap (first addEndDollar . addNumber n) $
-                            hGetLine h
-                        putStrLn line
-                        go n' h
+                        line <- hGetLine h
+                        let isEmpty = null line
+                        unless (mustIgnore e isEmpty) $ do
+                            n' <- addNumber n isEmpty
+                            putStr line
+                            addEndDollar
+                            putStrLn ""
+                            go n' isEmpty h
+                        go n isEmpty h
 
         errorHandler :: IOError -> IO ()
         errorHandler e

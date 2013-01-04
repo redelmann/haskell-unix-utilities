@@ -112,13 +112,14 @@ mainWithOptions opts ref = do
                     unless eof $ do
                         line <- hGetLine h
                         let isEmpty = null line
-                        unless (mustIgnore e isEmpty) $ do
-                            n' <- addNumber n isEmpty
-                            putStr $ displayInvisible line
-                            addEndDollar
-                            putStrLn ""
-                            go n' isEmpty h
-                        go n isEmpty h
+                        if (mustIgnore e isEmpty) 
+                            then go n isEmpty h
+                            else do
+                                n' <- addNumber n isEmpty
+                                putStr $ displayInvisible line
+                                addEndDollar
+                                putStrLn ""
+                                go n' isEmpty h
 
         errorHandler :: IOError -> IO ()
         errorHandler e

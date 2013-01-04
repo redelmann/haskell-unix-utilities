@@ -4,19 +4,22 @@ module Main (main) where
 
 import Options.Applicative
 import Control.Monad (join, unless, when)
-import Data.Monoid
+import Control.Exception (catch, handle)
 import System.IO
 import System.IO.Error hiding (catch)
-import Control.Exception (catch, handle)
 import System.Exit (exitWith, ExitCode (..))
+import Data.Monoid
 import Data.Bits ((.|.))
 import Data.IORef
+import Data.Char
 
 data Options = Options {
     numberAllLines      :: Bool,
     numberNonBlankLines :: Bool,
     disableOutputBuff   :: Bool,
+    display             :: Bool,
     displayAndDollar    :: Bool,
+    displayAndTabs      :: Bool,
     squeezeEmptyLines   :: Bool,
     files               :: [FilePath]
 }
@@ -28,11 +31,17 @@ options = Options <$> switch (short 'n'
                     <> help "Number the non-blank output lines, starting at 1")
                   <*> switch (short 'u'
                     <> help "Disable output buffering")
+                  <*> switch (short 'v'
+                    <> help "Display non-printing characters")
                   <*> switch (short 'e'
                     <> help ("Display non-printing characters " ++
                              "(see the -v option), " ++
                              "and display a dollar sign (`$') at " ++
                              "the end of each line"))
+                  <*> switch (short 't'
+                    <> help ("Display non-printing characters " ++
+                             "(see the -v option), " ++
+                             "and display tab characters as `^I'"))
                   <*> switch (short 's'
                     <> help ("Squeeze multiple adjacent empty lines, " ++
                              "causing the output to be single spaced"))
@@ -74,6 +83,21 @@ mainWithOptions opts ref = do
             where
                 r = show n
 
+        showCharTab :: Char -> String
+        showCharTab c
+            | not $ isPrint c = showLitChar c ""
+            | otherwise = [c]
+
+        showChar :: Char -> String
+        showChar '\t' = "\t"
+        showChar c = showCharTab c
+
+        displayInvisible :: String -> String
+        displayInvisible
+            | displayAndTabs opts = concatMap showCharTab
+            | display opts || displayAndDollar opts = concatMap showChar
+            | otherwise = id
+
         mustIgnore :: Bool -> Bool -> Bool
         mustIgnore
             | squeezeEmptyLines opts = (&&)
@@ -90,7 +114,7 @@ mainWithOptions opts ref = do
                         let isEmpty = null line
                         unless (mustIgnore e isEmpty) $ do
                             n' <- addNumber n isEmpty
-                            putStr line
+                            putStr $ displayInvisible line
                             addEndDollar
                             putStrLn ""
                             go n' isEmpty h

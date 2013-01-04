@@ -112,7 +112,7 @@ mainWithOptions opts ref = do
                     unless eof $ do
                         line <- hGetLine h
                         let isEmpty = null line
-                        if (mustIgnore e isEmpty) 
+                        if mustIgnore e isEmpty
                             then go n isEmpty h
                             else do
                                 n' <- addNumber n isEmpty
